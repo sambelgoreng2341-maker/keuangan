@@ -45,8 +45,13 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-neutral-200">
       <div className="max-w-4xl mx-auto px-3 sm:px-6">
         <div className="flex items-center justify-between gap-2 h-14 sm:h-16">
-          {/* Brand Wordmark */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          {/* Brand Wordmark & Icon */}
+          <div className="flex items-center gap-2 shrink-0">
+            <img
+              src="/favicon.webp"
+              alt="KasPintar Logo"
+              className="w-7 h-7 sm:w-8 sm:h-8 object-contain rounded-lg shadow-2xs"
+            />
             <span className="text-base sm:text-lg font-bold tracking-tight text-neutral-900 whitespace-nowrap">
               KasPintar
             </span>
