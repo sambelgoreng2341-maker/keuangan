@@ -1,0 +1,8 @@
+{
+  "name": "KasPintar - Pemantau Keuangan & Pengeluaran Bulanan Otomatis",
+  "description": "Aplikasi pencatatan keuangan modern untuk memantau pemasukan dan pengeluaran bulanan secara otomatis dengan pengenalan transaksi cerdas, transaksi rutin bulanan, dan batas anggaran.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
