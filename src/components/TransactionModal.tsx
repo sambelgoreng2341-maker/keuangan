@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Transaction,
   TransactionCategory,
   PaymentMethod,
   TransactionType,
+  CategoryBudget,
+  EXPENSE_CATEGORIES_DEFAULT,
+  INCOME_CATEGORIES_DEFAULT,
 } from '../types/finance';
 import {
   X,
@@ -27,20 +30,8 @@ interface TransactionModalProps {
   editingTransaction?: Transaction | null;
   defaultDate?: string;
   initialOpenCamera?: boolean;
+  availableBudgets?: CategoryBudget[];
 }
-
-const CATEGORIES: TransactionCategory[] = [
-  'Makanan & Minuman',
-  'Belanja & Kebutuhan',
-  'Tagihan & Utilitas',
-  'Transportasi',
-  'Sewa & Tempat Tinggal',
-  'Hiburan & Langganan',
-  'Kesehatan',
-  'Gaji & Upah',
-  'Investasi & Tabungan',
-  'Lain-lain',
-];
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   'QRIS',
@@ -62,6 +53,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   editingTransaction,
   defaultDate,
   initialOpenCamera = false,
+  availableBudgets = [],
 }) => {
   const [type, setType] = useState<TransactionType>('pengeluaran');
   const [amount, setAmount] = useState<number>(0);
@@ -77,8 +69,28 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [pastedText, setPastedText] = useState('');
   const [showTextPaste, setShowTextPaste] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [customCategoryInput, setCustomCategoryInput] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Kategori Dinamis Sesuai Database Google Sheets & Tipe Transaksi
+  const availableCategories = useMemo<string[]>(() => {
+    if (type === 'pengeluaran') {
+      const dbCategories = availableBudgets.map((b) => b.category.trim()).filter(Boolean);
+      const combined: string[] = Array.from(new Set([...dbCategories, ...EXPENSE_CATEGORIES_DEFAULT]));
+      if (category && !combined.includes(category)) {
+        combined.push(category);
+      }
+      return combined;
+    } else {
+      const combined: string[] = INCOME_CATEGORIES_DEFAULT.map((c) => String(c));
+      if (category && !combined.includes(category)) {
+        combined.push(category);
+      }
+      return combined;
+    }
+  }, [type, availableBudgets, category]);
 
   useEffect(() => {
     if (editingTransaction) {
@@ -91,16 +103,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setDate(editingTransaction.date);
       setTime(editingTransaction.time || '12:00');
       setReceiptUrl(editingTransaction.receiptUrl);
+      setIsCustomCategory(false);
+      setCustomCategoryInput('');
     } else {
       setType('pengeluaran');
       setAmount(0);
       setMerchant('');
       setDescription('');
-      setCategory('Makanan & Minuman');
+      const defaultExpense = availableBudgets.length > 0 ? availableBudgets[0].category : 'Makanan & Minuman';
+      setCategory(defaultExpense);
       setPaymentMethod('QRIS');
       setDate(defaultDate || new Date().toISOString().split('T')[0]);
       setTime(new Date().toTimeString().slice(0, 5));
       setReceiptUrl(undefined);
+      setIsCustomCategory(false);
+      setCustomCategoryInput('');
 
       // Open camera directly if triggered by camera action
       if (initialOpenCamera) {
@@ -110,7 +127,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     setShowTextPaste(false);
     setPastedText('');
     setScanMessage(null);
-  }, [editingTransaction, defaultDate, isOpen, initialOpenCamera]);
+  }, [editingTransaction, defaultDate, isOpen, initialOpenCamera, availableBudgets]);
 
   if (!isOpen) return null;
 
@@ -224,13 +241,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     e.preventDefault();
     if (!amount || amount <= 0 || !merchant.trim()) return;
 
+    const finalCategory = isCustomCategory && customCategoryInput.trim()
+      ? customCategoryInput.trim()
+      : category;
+
     onSave(
       {
         type,
         amount: Number(amount),
         merchant: merchant.trim(),
         description: description.trim(),
-        category,
+        category: finalCategory,
         paymentMethod,
         date,
         time,
@@ -409,7 +430,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               type="button"
               onClick={() => {
                 setType('pengeluaran');
-                if (category === 'Gaji & Upah') setCategory('Makanan & Minuman');
+                setIsCustomCategory(false);
+                const defaultExpense = availableBudgets.length > 0 ? availableBudgets[0].category : 'Makanan & Minuman';
+                setCategory(defaultExpense);
               }}
               className={`py-2 rounded-xl transition-all cursor-pointer ${
                 type === 'pengeluaran'
@@ -423,6 +446,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               type="button"
               onClick={() => {
                 setType('pemasukan');
+                setIsCustomCategory(false);
                 setCategory('Gaji & Upah');
               }}
               className={`py-2 rounded-xl transition-all cursor-pointer ${
@@ -496,18 +520,59 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           {/* Category & Payment Method */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-neutral-700 block mb-1">Kategori</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as TransactionCategory)}
-                className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
-              >
-                {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-neutral-700">Kategori</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isCustomCategory) {
+                      setIsCustomCategory(false);
+                      setCategory(availableCategories[0] || (type === 'pemasukan' ? 'Gaji & Upah' : 'Makanan & Minuman'));
+                    } else {
+                      setIsCustomCategory(true);
+                      setCustomCategoryInput('');
+                    }
+                  }}
+                  className="text-[11px] text-emerald-600 hover:text-emerald-700 font-medium cursor-pointer"
+                >
+                  {isCustomCategory ? 'Daftar' : '+ Kategori Baru'}
+                </button>
+              </div>
+
+              {isCustomCategory ? (
+                <input
+                  type="text"
+                  placeholder="Ketik nama kategori..."
+                  value={customCategoryInput}
+                  onChange={(e) => {
+                    setCustomCategoryInput(e.target.value);
+                    setCategory(e.target.value);
+                  }}
+                  className="w-full px-3 py-2 text-xs border border-emerald-400 bg-emerald-50/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  autoFocus
+                  required
+                />
+              ) : (
+                <select
+                  value={category}
+                  onChange={(e) => {
+                    if (e.target.value === '__custom__') {
+                      setIsCustomCategory(true);
+                      setCustomCategoryInput('');
+                    } else {
+                      setCategory(e.target.value);
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                >
+                  {availableCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                  <option value="__custom__">+ Tulis Kategori Kustom...</option>
+                </select>
+              )}
             </div>
             <div>
               <label className="text-xs font-semibold text-neutral-700 block mb-1">Metode Bayar</label>

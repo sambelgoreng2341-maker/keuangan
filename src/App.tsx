@@ -283,6 +283,22 @@ export default function App() {
       };
       setTransactions((prev) => [newTrx, ...prev]);
 
+      // Jika kategori pengeluaran baru digunakan, daftarkan otomatis ke daftar anggaran
+      if (
+        data.type === 'pengeluaran' &&
+        data.category &&
+        !budgets.some((b) => b.category.toLowerCase() === data.category.toLowerCase())
+      ) {
+        setBudgets((prev) => [
+          ...prev,
+          {
+            category: data.category,
+            monthlyLimit: 1000000,
+            alertThresholdPercent: 80,
+          },
+        ]);
+      }
+
       if (sheetUrl) {
         showSyncFeedback('Menyinkronkan transaksi ke Google Sheet...', 'syncing');
         syncSingleTransactionToGSheet(sheetUrl, {
@@ -543,6 +559,7 @@ export default function App() {
         editingTransaction={editingTransaction}
         defaultDate={`${currentMonthKey}-15`}
         initialOpenCamera={openCameraDirectly}
+        availableBudgets={budgets}
       />
 
       {/* Full-size Receipt Lightbox Modal */}

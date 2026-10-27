@@ -245,6 +245,8 @@ function setupDatabase() {
       ['Sewa & Tempat Tinggal', 2500000, 95],
       ['Hiburan & Langganan', 600000, 75],
       ['Kesehatan', 500000, 80],
+      ['Pendidikan', 1000000, 80],
+      ['Investasi & Tabungan', 1000000, 90],
       ['Lain-lain', 500000, 80]
     ];
     wsBudget.getRange(2, 1, defaultBudgets.length, 3).setValues(defaultBudgets);

@@ -1,17 +1,33 @@
 export type TransactionType = 'pemasukan' | 'pengeluaran';
 
+export const EXPENSE_CATEGORIES_DEFAULT = [
+  'Makanan & Minuman',
+  'Belanja & Kebutuhan',
+  'Tagihan & Utilitas',
+  'Transportasi',
+  'Sewa & Tempat Tinggal',
+  'Hiburan & Langganan',
+  'Kesehatan',
+  'Pendidikan',
+  'Investasi & Tabungan',
+  'Lain-lain',
+] as const;
+
+export const INCOME_CATEGORIES_DEFAULT = [
+  'Gaji & Upah',
+  'Bonus & THR',
+  'Hasil Usaha & Bisnis',
+  'Investasi & Dividen',
+  'Pemasukan Lainnya',
+] as const;
+
+export type StandardExpenseCategory = (typeof EXPENSE_CATEGORIES_DEFAULT)[number];
+export type StandardIncomeCategory = (typeof INCOME_CATEGORIES_DEFAULT)[number];
+
 export type TransactionCategory =
-  | 'Gaji & Upah'
-  | 'Makanan & Minuman'
-  | 'Tagihan & Utilitas'
-  | 'Transportasi'
-  | 'Belanja & Kebutuhan'
-  | 'Hiburan & Langganan'
-  | 'Kesehatan'
-  | 'Sewa & Tempat Tinggal'
-  | 'Investasi & Tabungan'
-  | 'Pendidikan'
-  | 'Lain-lain';
+  | StandardExpenseCategory
+  | StandardIncomeCategory
+  | (string & {});
 
 export type PaymentMethod =
   | 'BCA'
