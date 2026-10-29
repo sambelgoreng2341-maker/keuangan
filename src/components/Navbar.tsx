@@ -44,6 +44,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-neutral-200">
       <div className="max-w-4xl mx-auto px-3 sm:px-6">
+        {/* Row 1: Brand & Action Buttons */}
         <div className="flex items-center justify-between gap-2 h-14 sm:h-16">
           {/* Brand Wordmark & Icon */}
           <div className="flex items-center gap-2 shrink-0">
@@ -57,35 +58,35 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
           </div>
 
-          {/* Clean Integrated Month Switcher */}
-          <div className="flex items-center gap-0.5 bg-neutral-100/90 p-0.5 sm:p-1 rounded-xl border border-neutral-200/60 text-xs shadow-2xs shrink min-w-0">
+          {/* Desktop-only Month Switcher (Centered) */}
+          <div className="hidden sm:flex items-center gap-0.5 bg-neutral-100/90 p-1 rounded-xl border border-neutral-200/60 text-xs shadow-2xs">
             <button
               onClick={handlePrevMonth}
-              className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center hover:bg-white rounded-lg text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer shrink-0"
+              className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer"
               title="Bulan sebelumnya"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-1 sm:gap-1.5 px-1 sm:px-2 font-semibold text-neutral-800 font-mono tabular-nums whitespace-nowrap text-[11px] sm:text-xs">
-              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0 hidden xs:inline" />
-              <span className="truncate">{getMonthLabel(currentMonthKey)}</span>
+            <div className="flex items-center gap-1.5 px-2 font-semibold text-neutral-800 font-mono tabular-nums whitespace-nowrap text-xs">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>{getMonthLabel(currentMonthKey)}</span>
             </div>
             <button
               onClick={handleNextMonth}
-              className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center hover:bg-white rounded-lg text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer shrink-0"
+              className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer"
               title="Bulan berikutnya"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Action Buttons: Google Sheet (desktop/tablet only) + Camera Struk (desktop/tablet only) + Catat (always visible) */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Google Sheet Database Button - Accessible on both mobile and desktop */}
+          {/* Action Buttons: Google Sheet + Camera + Catat */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Google Sheet Database Button */}
             <button
               type="button"
               onClick={onOpenGoogleSheetsModal}
-              className={`inline-flex min-h-[36px] sm:min-h-[40px] items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold rounded-xl border transition-all whitespace-nowrap cursor-pointer ${
+              className={`inline-flex min-h-[38px] sm:min-h-[40px] items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold rounded-xl border transition-all whitespace-nowrap cursor-pointer ${
                 hasGSheetConnected
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                   : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
@@ -98,11 +99,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               {hasGSheetConnected ? (
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Terhubung"></span>
               ) : (
-                <span className="w-2 h-2 rounded-full bg-amber-500" title="Perlu Pengaturan / Belum Terhubung"></span>
+                <span className="w-2 h-2 rounded-full bg-amber-500" title="Belum Terhubung"></span>
               )}
             </button>
 
-            {/* Camera Struk Button (hidden on mobile, mobile uses bottom bar floating camera) */}
+            {/* Camera Struk Button (Desktop only) */}
             <button
               type="button"
               onClick={onOpenCamera}
@@ -113,11 +114,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Foto Struk</span>
             </button>
 
-            {/* Catat Button - The only action button in the mobile top bar */}
+            {/* Catat Button */}
             <button
               type="button"
               onClick={onOpenAddModal}
-              className="min-h-[38px] sm:min-h-[40px] inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 active:scale-95 rounded-xl shadow-xs transition-all whitespace-nowrap cursor-pointer"
+              className="min-h-[38px] sm:min-h-[40px] inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 active:scale-95 rounded-xl shadow-xs transition-all whitespace-nowrap cursor-pointer"
               title="Catat Transaksi Baru"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -125,8 +126,35 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Row 2: Mobile-only Spacious Month Switcher Bar */}
+        <div className="sm:hidden pb-2.5 pt-0.5 flex items-center justify-center">
+          <div className="flex items-center justify-between w-full max-w-xs bg-neutral-100/90 px-1 py-0.5 rounded-xl border border-neutral-200/80 shadow-2xs">
+            <button
+              onClick={handlePrevMonth}
+              className="min-h-[36px] min-w-[36px] flex items-center justify-center hover:bg-white rounded-lg text-neutral-700 active:bg-white transition-colors cursor-pointer"
+              title="Bulan sebelumnya"
+              aria-label="Bulan sebelumnya"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-1.5 font-bold text-neutral-900 font-mono tabular-nums text-xs">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{getMonthLabel(currentMonthKey)}</span>
+            </div>
+            <button
+              onClick={handleNextMonth}
+              className="min-h-[36px] min-w-[36px] flex items-center justify-center hover:bg-white rounded-lg text-neutral-700 active:bg-white transition-colors cursor-pointer"
+              title="Bulan berikutnya"
+              aria-label="Bulan berikutnya"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </header>
   );
+
 };
 

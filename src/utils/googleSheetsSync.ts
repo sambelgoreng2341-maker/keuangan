@@ -1,7 +1,6 @@
 /**
  * Utilitas untuk sinkronisasi Google Sheets Database melalui Google Apps Script (Code.gs)
- * Menggunakan server proxy internal (/api/gsheet-proxy) untuk kelancaran koneksi di perangkat Mobile/PWA
- * dan menghindari kendala CORS/redirect otentikasi Google.
+ * Kompatibel dengan Static Hosting (Cloudflare Pages, Vercel, Netlify) & Server AI Studio
  */
 
 import { Transaction, CategoryBudget, RecurringTemplate } from '../types/finance';
@@ -71,21 +70,23 @@ export function setLastSyncTime(): void {
 }
 
 /**
- * Sinkronisasi URL Google Sheets dengan server backend
- * agar perangkat PC dan Mobile selalu berbagi link database yang sama
+ * Sinkronisasi URL Google Sheets dengan server backend jika tersedia
  */
 export async function fetchServerGSheetUrl(): Promise<string> {
   try {
     const res = await fetch('/api/config/gsheet');
     if (res.ok) {
-      const data = await res.json();
-      if (data.url && typeof data.url === 'string' && data.url.trim().length > 0) {
-        saveGSheetUrl(data.url.trim());
-        return data.url.trim();
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.url && typeof data.url === 'string' && data.url.trim().length > 0) {
+          saveGSheetUrl(data.url.trim());
+          return data.url.trim();
+        }
       }
     }
-  } catch (err) {
-    console.warn('Error fetching server gsheet config:', err);
+  } catch {
+    // fallback to local storage on static hosting
   }
   return getSavedGSheetUrl();
 }
@@ -99,13 +100,103 @@ export async function saveGSheetUrlToServer(url: string): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: clean }),
     });
-  } catch (err) {
-    console.warn('Error saving gsheet url to server:', err);
+  } catch {
+    // fallback on static hosting
   }
 }
 
 /**
- * Tes koneksi ke URL Web App Google Apps Script via proxy server
+ * Helper request ke Google Apps Script yang aman terhadap format HTML (Anti Unexpected token '<')
+ * Bekerja langsung di Cloudflare Pages, browser HP, maupun dev server.
+ */
+async function requestGSheet(
+  url: string,
+  params: Record<string, string> = {},
+  payload?: any
+): Promise<any> {
+  const trimmedUrl = url.trim();
+  const urlObj = new URL(trimmedUrl);
+  for (const [key, val] of Object.entries(params)) {
+    urlObj.searchParams.set(key, val);
+  }
+  urlObj.searchParams.set('_t', String(Date.now()));
+
+  const isPost = payload !== undefined;
+  const targetUrl = urlObj.toString();
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: isPost ? 'POST' : 'GET',
+      headers: isPost ? { 'Content-Type': 'text/plain;charset=utf-8' } : undefined,
+      body: isPost ? JSON.stringify(payload) : undefined,
+      redirect: 'follow',
+    });
+
+    const text = await response.text();
+    const cleanText = text.trim();
+
+    // Deteksi jika respon adalah HTML (misalnya redirect Google login atau error page)
+    if (cleanText.startsWith('<') || cleanText.includes('<!DOCTYPE') || cleanText.includes('<!doctype')) {
+      if (cleanText.includes('accounts.google.com') || cleanText.includes('ServiceLogin')) {
+        return {
+          status: 'error',
+          success: false,
+          needsAnyonePermission: true,
+          message:
+            'Akses Google Apps Script dialihkan ke login Google. Harap atur izin "Who has access" (Siapa yang memiliki akses) ke "Anyone" (Siapa saja) di menu Deploy Web App.',
+        };
+      }
+      if (cleanText.includes('Sorry, unable to open the file') || cleanText.includes('Page not found')) {
+        return {
+          status: 'error',
+          success: false,
+          message:
+            'File spreadsheet Google Sheets tidak ditemukan atau belum dipublikasikan. Pastikan URL Web App benar.',
+        };
+      }
+      return {
+        status: 'error',
+        success: false,
+        message: 'Respon dari Google Apps Script berupa HTML, bukan format JSON.',
+      };
+    }
+
+    try {
+      return JSON.parse(cleanText);
+    } catch {
+      return {
+        status: 'error',
+        success: false,
+        message: 'Format respon dari Google Apps Script tidak valid.',
+      };
+    }
+  } catch (directErr: any) {
+    // Jika fetch langsung gagal (misal koneksi jaringan atau CORS), coba proxy backend jika tersedia
+    try {
+      const proxyUrl = isPost
+        ? '/api/gsheet-proxy'
+        : `/api/gsheet-proxy?targetUrl=${encodeURIComponent(targetUrl)}`;
+      const proxyRes = await fetch(proxyUrl, {
+        method: isPost ? 'POST' : 'GET',
+        headers: isPost ? { 'Content-Type': 'application/json' } : undefined,
+        body: isPost ? JSON.stringify({ targetUrl: trimmedUrl, ...payload }) : undefined,
+      });
+
+      const proxyText = await proxyRes.text();
+      const cleanProxy = proxyText.trim();
+      if (!cleanProxy.startsWith('<')) {
+        return JSON.parse(cleanProxy);
+      }
+    } catch {
+      // abaikan fallback proxy jika gagal
+    }
+
+    throw directErr;
+  }
+}
+
+/**
+ * Tes koneksi ke URL Web App Google Apps Script
  */
 export async function testGSheetConnection(rawUrl: string): Promise<GSheetSyncResult> {
   const url = rawUrl.trim();
@@ -121,9 +212,7 @@ export async function testGSheetConnection(rawUrl: string): Promise<GSheetSyncRe
   }
 
   try {
-    const proxyUrl = `/api/gsheet-proxy?action=ping&_t=${Date.now()}&targetUrl=${encodeURIComponent(url)}`;
-    const response = await fetch(proxyUrl);
-    const json = await response.json();
+    const json = await requestGSheet(url, { action: 'ping' });
 
     if (json.status === 'success' || json.success === true) {
       return {
@@ -142,7 +231,7 @@ export async function testGSheetConnection(rawUrl: string): Promise<GSheetSyncRe
     const msg = err instanceof Error ? err.message : String(err);
     return {
       success: false,
-      message: `Tidak dapat menghubungi Google Apps Script (${msg}).`,
+      message: `Tidak dapat menghubungi Google Apps Script (${msg}). Pastikan koneksi internet aktif.`,
     };
   }
 }
@@ -161,18 +250,8 @@ export async function syncSingleTransactionToGSheet(
   if (!targetUrl) return { success: false, message: 'URL Google Sheet belum diatur.' };
 
   try {
-    const response = await fetch('/api/gsheet-proxy', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        targetUrl,
-        ...mutation,
-      }),
-    });
+    const json = await requestGSheet(targetUrl, {}, mutation);
 
-    const json = await response.json();
     if (json.status === 'success' || json.success === true) {
       setLastSyncTime();
       return { success: true, message: json.message || 'Berhasil disinkronkan ke Google Sheet' };
@@ -193,11 +272,9 @@ export async function syncSingleTransactionToGSheet(
  */
 export async function setupGSheetRemotely(url: string): Promise<GSheetSyncResult> {
   try {
-    const proxyUrl = `/api/gsheet-proxy?action=setup&_t=${Date.now()}&targetUrl=${encodeURIComponent(url)}`;
-    const response = await fetch(proxyUrl);
-    const json = await response.json();
+    const json = await requestGSheet(url, { action: 'setup' });
     if (json.status === 'success' || json.success === true) {
-      return { success: true, message: json.message };
+      return { success: true, message: json.message || '4 Sheet berhasil dibuat dan diformat!' };
     }
     return {
       success: false,
@@ -221,22 +298,14 @@ export async function pushAllDataToGSheet(
 ): Promise<GSheetSyncResult> {
   try {
     const payload = {
-      targetUrl: url.trim(),
       action: 'syncLocalData',
       transactions,
       budgets,
       recurring,
     };
 
-    const response = await fetch('/api/gsheet-proxy', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const json = await requestGSheet(url, {}, payload);
 
-    const json = await response.json();
     if (json.status === 'success' || json.success === true) {
       setLastSyncTime();
       return {
@@ -266,9 +335,8 @@ export async function pullDataFromGSheet(url: string): Promise<
   }>
 > {
   try {
-    const proxyUrl = `/api/gsheet-proxy?action=getInitialData&_t=${Date.now()}&targetUrl=${encodeURIComponent(url)}`;
-    const response = await fetch(proxyUrl);
-    const json = await response.json();
+    const json = await requestGSheet(url, { action: 'getInitialData' });
+
     if (json.status === 'success' || json.success === true) {
       setLastSyncTime();
       return {

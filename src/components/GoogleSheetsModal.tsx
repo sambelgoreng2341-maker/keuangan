@@ -643,12 +643,12 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 pt-1">
+                <div className="flex flex-col sm:flex-row gap-2 pt-1">
                   <button
                     type="button"
                     onClick={handleTestConnection}
                     disabled={connectionStatus === 'testing' || !webAppUrl.trim()}
-                    className="px-3.5 py-2 text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 rounded-xl transition-all cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
+                    className="flex-1 px-3.5 py-2.5 text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-2xs"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${connectionStatus === 'testing' ? 'animate-spin' : ''}`} />
                     <span>Tes & Simpan Koneksi</span>
@@ -658,18 +658,18 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
                     type="button"
                     onClick={handleSetupDatabaseRemotely}
                     disabled={isSettingUpSheets || !webAppUrl.trim()}
-                    className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all cursor-pointer inline-flex items-center gap-1.5"
+                    className="flex-1 px-3.5 py-2.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
                     title="Jalankan setup database otomatis pada Google Sheet Anda"
                   >
                     <Table className={`w-3.5 h-3.5 ${isSettingUpSheets ? 'animate-spin' : ''}`} />
-                    <span>Inisialisasi 4 Sheet di Spreadsheet</span>
+                    <span>Inisialisasi 4 Sheet</span>
                   </button>
 
                   {webAppUrl && (
                     <button
                       type="button"
                       onClick={handleDisconnect}
-                      className="px-3 py-2 text-xs font-semibold text-neutral-600 hover:text-rose-600 hover:bg-rose-50 border border-neutral-200 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5 ml-auto"
+                      className="px-3 py-2.5 text-xs font-semibold text-neutral-600 hover:text-rose-600 hover:bg-rose-50 border border-neutral-200 rounded-xl transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 sm:w-auto"
                     >
                       <Unlink className="w-3.5 h-3.5" />
                       <span>Reset</span>
