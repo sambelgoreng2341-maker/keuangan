@@ -11,8 +11,8 @@ import { ReceiptViewerModal } from './components/ReceiptViewerModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { MobileBottomNav, AppSection } from './components/MobileBottomNav';
 import { Transaction, RecurringTemplate, CategoryBudget } from './types/finance';
-import { getMonthLabel, getMonthYearKey } from './utils/formatters';
-import { getSavedGSheetUrl, syncSingleTransactionToGSheet, pullDataFromGSheet } from './utils/googleSheetsSync';
+import { getMonthLabel, getMonthYearKey, getDeviceLocalDate } from './utils/formatters';
+import { getSavedGSheetUrl, fetchServerGSheetUrl, syncSingleTransactionToGSheet, pullDataFromGSheet } from './utils/googleSheetsSync';
 import { RotateCcw, ListFilter, PieChart, Zap, Target, CalendarRange, FileSpreadsheet, Check, CloudUpload } from 'lucide-react';
 
 const STORAGE_KEY_TRX = 'kaspintar_transactions_db';
@@ -95,7 +95,10 @@ export default function App() {
   // Tarik data langsung dari Google Sheets database
   const fetchDatabaseData = async (silent = false) => {
     const url = getSavedGSheetUrl();
-    if (!url) return;
+    if (!url) {
+      setHasGSheetConnected(false);
+      return;
+    }
 
     if (!silent) {
       setIsPullingData(true);
@@ -105,6 +108,7 @@ export default function App() {
     try {
       const res = await pullDataFromGSheet(url);
       if (res.success && res.data) {
+        setHasGSheetConnected(true);
         setTransactions(res.data.transactions || []);
         setBudgets(res.data.budgets || []);
         setRecurringList(res.data.recurring || []);
@@ -112,10 +116,14 @@ export default function App() {
           `Database terhubung: ${(res.data.transactions || []).length} transaksi`,
           'success'
         );
-      } else if (!silent) {
-        showSyncFeedback(res.message || 'Gagal memuat data dari database', 'error');
+      } else {
+        setHasGSheetConnected(false);
+        if (!silent) {
+          showSyncFeedback(res.message || 'Gagal memuat data dari database', 'error');
+        }
       }
     } catch {
+      setHasGSheetConnected(false);
       if (!silent) {
         showSyncFeedback('Gagal terhubung ke database Google Sheet', 'error');
       }
@@ -124,9 +132,13 @@ export default function App() {
     }
   };
 
-  // On mount: Muat data dari Google Sheets secara otomatis
+  // On mount: Muat URL global dari server (agar sinkron otomatis antara PC & Mobile), lalu tarik data
   useEffect(() => {
-    fetchDatabaseData(true);
+    fetchServerGSheetUrl().then((serverUrl) => {
+      if (serverUrl) {
+        fetchDatabaseData(true);
+      }
+    });
   }, []);
 
   // Sync to local storage
@@ -268,11 +280,16 @@ export default function App() {
         })
           .then((res) => {
             if (res.success) {
+              setHasGSheetConnected(true);
               showSyncFeedback('Perubahan tersimpan di Google Sheet', 'success');
+            } else {
+              setHasGSheetConnected(false);
+              showSyncFeedback(res.message || 'Gagal menyimpan perubahan ke sheet', 'error');
             }
           })
-          .catch(() => {
-            // Local data is preserved
+          .catch((err) => {
+            setHasGSheetConnected(false);
+            showSyncFeedback('Gagal tersambung ke Google Sheet: ' + (err?.message || 'Error'), 'error');
           });
       }
     } else {
@@ -307,11 +324,16 @@ export default function App() {
         })
           .then((res) => {
             if (res.success) {
+              setHasGSheetConnected(true);
               showSyncFeedback('Transaksi tersimpan di Google Sheet', 'success');
+            } else {
+              setHasGSheetConnected(false);
+              showSyncFeedback(res.message || 'Gagal menyimpan transaksi ke Google Sheet', 'error');
             }
           })
-          .catch(() => {
-            // Local data is preserved
+          .catch((err) => {
+            setHasGSheetConnected(false);
+            showSyncFeedback('Gagal tersambung ke Google Sheet: ' + (err?.message || 'Error'), 'error');
           });
       }
     }
@@ -329,11 +351,16 @@ export default function App() {
       })
         .then((res) => {
           if (res.success) {
+            setHasGSheetConnected(true);
             showSyncFeedback('Data terhapus dari Google Sheet', 'success');
+          } else {
+            setHasGSheetConnected(false);
+            showSyncFeedback(res.message || 'Gagal menghapus di Google Sheet', 'error');
           }
         })
-        .catch(() => {
-          // Local data is preserved
+        .catch((err) => {
+          setHasGSheetConnected(false);
+          showSyncFeedback('Gagal tersambung ke Google Sheet: ' + (err?.message || 'Error'), 'error');
         });
     }
   };
@@ -368,6 +395,27 @@ export default function App() {
         onOpenGoogleSheetsModal={() => setIsGoogleSheetsModalOpen(true)}
         hasGSheetConnected={hasGSheetConnected}
       />
+
+      {/* Banner Peringatan Google Sheet Jika Belum Terhubung (Penting untuk pengguna Mobile) */}
+      {!hasGSheetConnected && (
+        <div className="bg-amber-500/10 border-b border-amber-300/70 px-3.5 py-2">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-amber-950 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+              <p className="truncate text-[11px] sm:text-xs">
+                <span className="font-bold">Data HP Belum Terhubung ke Google Sheet:</span> Klik untuk menghubungkan.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsGoogleSheetsModalOpen(true)}
+              className="px-2.5 py-1 text-[11px] font-bold bg-amber-600 text-white hover:bg-amber-700 rounded-lg whitespace-nowrap cursor-pointer transition-colors shadow-2xs shrink-0"
+            >
+              Hubungkan
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 space-y-5 pb-28 md:pb-12">
@@ -557,9 +605,10 @@ export default function App() {
         }}
         onSave={handleSaveTransaction}
         editingTransaction={editingTransaction}
-        defaultDate={`${currentMonthKey}-15`}
+        defaultDate={getDeviceLocalDate()}
         initialOpenCamera={openCameraDirectly}
         availableBudgets={budgets}
+        existingTransactions={transactions}
       />
 
       {/* Full-size Receipt Lightbox Modal */}

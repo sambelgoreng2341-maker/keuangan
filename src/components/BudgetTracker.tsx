@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Target, AlertTriangle, CheckCircle, Edit3, Plus, X } from 'lucide-react';
 import { CategoryBudget, Transaction, TransactionCategory } from '../types/finance';
 import { formatCompactRupiah, formatRupiah } from '../utils/formatters';
@@ -35,6 +35,15 @@ export const BudgetTracker: React.FC<BudgetTrackerProps> = ({
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newCategory, setNewCategory] = useState<TransactionCategory>('Makanan & Minuman');
   const [newLimit, setNewLimit] = useState<number>(1000000);
+
+  const availableCategoryOptions = useMemo<string[]>(() => {
+    const fromTrx = transactions
+      .filter((t) => t.type === 'pengeluaran')
+      .map((t) => t.category.trim())
+      .filter(Boolean);
+    const fromBudgets = budgets.map((b) => b.category.trim()).filter(Boolean);
+    return Array.from(new Set([...fromBudgets, ...fromTrx, ...ALL_CATEGORIES]));
+  }, [budgets, transactions]);
 
   // Calculate actual spending per category
   const expenseByCategory: Record<string, number> = {};
@@ -320,7 +329,7 @@ export const BudgetTracker: React.FC<BudgetTrackerProps> = ({
                   onChange={(e) => setNewCategory(e.target.value as TransactionCategory)}
                   className="mt-1 w-full px-3 py-2 text-xs border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
                 >
-                  {ALL_CATEGORIES.map((cat) => (
+                  {availableCategoryOptions.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>

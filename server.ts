@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
@@ -8,6 +9,37 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const CONFIG_FILE_PATH = path.resolve(__dirname, 'data', 'gsheet_config.json');
+const DEFAULT_GSHEET_URL =
+  'https://script.google.com/macros/s/AKfycbyMANJzqHCUaKLOpOrz4nKP8sWzQCk4Pqq6v16aLvoB1heam6SXieLu2SjCqurb3vDH/exec';
+
+function getStoredGSheetUrl(): string {
+  try {
+    if (fs.existsSync(CONFIG_FILE_PATH)) {
+      const content = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
+      const data = JSON.parse(content);
+      if (data.url && typeof data.url === 'string') {
+        return data.url.trim();
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to read gsheet_config.json:', err);
+  }
+  return process.env.GSHEET_URL || DEFAULT_GSHEET_URL;
+}
+
+function saveStoredGSheetUrl(url: string): void {
+  try {
+    const dir = path.dirname(CONFIG_FILE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify({ url: url.trim(), updatedAt: new Date().toISOString() }, null, 2));
+  } catch (err) {
+    console.error('Failed to save gsheet_config.json:', err);
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -360,6 +392,97 @@ Keluarkan HANYA format JSON valid tanpa blok markdown:
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint: Get & Set Google Sheet URL globally across devices
+app.get('/api/config/gsheet', (_req, res) => {
+  res.json({
+    success: true,
+    url: getStoredGSheetUrl(),
+  });
+});
+
+app.post('/api/config/gsheet', (req, res) => {
+  const { url } = req.body || {};
+  if (typeof url === 'string') {
+    saveStoredGSheetUrl(url);
+    return res.json({ success: true, url: url.trim() });
+  }
+  return res.status(400).json({ success: false, message: 'Invalid URL provided.' });
+});
+
+// Endpoint: Robust Server-side Proxy for Google Sheets Apps Script (Solves mobile CORS and redirect issues)
+app.all('/api/gsheet-proxy', async (req, res) => {
+  try {
+    let targetUrl = (req.query.targetUrl as string) || (req.body?.targetUrl as string) || getStoredGSheetUrl();
+    if (!targetUrl) {
+      return res.status(400).json({ status: 'error', success: false, message: 'URL Google Sheet belum diatur.' });
+    }
+
+    targetUrl = targetUrl.trim();
+    const urlObj = new URL(targetUrl);
+    for (const [key, val] of Object.entries(req.query)) {
+      if (key !== 'targetUrl' && key !== '_t') {
+        urlObj.searchParams.set(key, String(val));
+      }
+    }
+
+    const fetchOptions: RequestInit = {
+      method: req.method,
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+        'User-Agent': 'KasPintar-App/1.0',
+      },
+      redirect: 'follow',
+    };
+
+    if (req.method === 'POST') {
+      const payload = { ...req.body };
+      delete payload.targetUrl;
+      fetchOptions.body = JSON.stringify(payload);
+    }
+
+    const response = await fetch(urlObj.toString(), fetchOptions);
+    const finalUrl = response.url || '';
+
+    // Check if redirected to Google Accounts login (Who has access is not "Anyone")
+    if (finalUrl.includes('accounts.google.com') || finalUrl.includes('ServiceLogin')) {
+      return res.json({
+        status: 'error',
+        success: false,
+        needsAnyonePermission: true,
+        message: 'Akses Google Apps Script dialihkan ke halaman login akun Google. Harap atur izin "Who has access" (Siapa yang memiliki akses) ke "Anyone" (Siapa saja) di menu Deploy Web App.',
+      });
+    }
+
+    const text = await response.text();
+
+    if (text.includes('Sorry, unable to open the file at present') || text.includes('Page not found')) {
+      return res.json({
+        status: 'error',
+        success: false,
+        needsAnyonePermission: true,
+        message: 'File Google Sheet / Apps Script tidak ditemukan atau belum dipublikasikan ke "Anyone". Pastikan URL benar dan telah di-Deploy sebagai Web App.',
+      });
+    }
+
+    try {
+      const json = JSON.parse(text);
+      return res.json(json);
+    } catch {
+      return res.json({
+        status: 'error',
+        success: false,
+        message: 'Respon dari Apps Script bukan format JSON yang valid.',
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      status: 'error',
+      success: false,
+      message: 'Gagal menghubungi server Google Sheets: ' + (err?.message || String(err)),
+    });
   }
 });
 

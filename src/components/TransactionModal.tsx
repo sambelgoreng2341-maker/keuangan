@@ -20,7 +20,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { CameraCaptureModal } from './CameraCaptureModal';
-import { formatRupiah } from '../utils/formatters';
+import { formatRupiah, getDeviceLocalDate, getDeviceLocalTime } from '../utils/formatters';
 import { parseIndonesianTransactionTextLocally } from '../utils/localParsers';
 
 interface TransactionModalProps {
@@ -31,7 +31,39 @@ interface TransactionModalProps {
   defaultDate?: string;
   initialOpenCamera?: boolean;
   availableBudgets?: CategoryBudget[];
+  existingTransactions?: Transaction[];
 }
+
+const STORAGE_KEY_CUSTOM_EXPENSE_CATS = 'keuangan_custom_expense_cats';
+const STORAGE_KEY_CUSTOM_INCOME_CATS = 'keuangan_custom_income_cats';
+
+const loadSavedCategories = (key: string): string[] => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((c): c is string => typeof c === 'string' && c.trim().length > 0);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+};
+
+const persistNewCategory = (key: string, newCat: string) => {
+  try {
+    const trimmed = newCat.trim();
+    if (!trimmed) return;
+    const existing = loadSavedCategories(key);
+    if (!existing.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+      localStorage.setItem(key, JSON.stringify([...existing, trimmed]));
+    }
+  } catch {
+    // ignore
+  }
+};
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   'QRIS',
@@ -54,6 +86,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   defaultDate,
   initialOpenCamera = false,
   availableBudgets = [],
+  existingTransactions = [],
 }) => {
   const [type, setType] = useState<TransactionType>('pengeluaran');
   const [amount, setAmount] = useState<number>(0);
@@ -61,8 +94,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<TransactionCategory>('Makanan & Minuman');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('QRIS');
-  const [date, setDate] = useState(defaultDate || new Date().toISOString().split('T')[0]);
-  const [time, setTime] = useState(new Date().toTimeString().slice(0, 5));
+  const [date, setDate] = useState(defaultDate || getDeviceLocalDate());
+  const [time, setTime] = useState(getDeviceLocalTime());
   const [receiptUrl, setReceiptUrl] = useState<string | undefined>(undefined);
   const [isScanning, setIsScanning] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -72,25 +105,69 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState('');
 
+  const [savedExpenseCats, setSavedExpenseCats] = useState<string[]>(() =>
+    loadSavedCategories(STORAGE_KEY_CUSTOM_EXPENSE_CATS)
+  );
+  const [savedIncomeCats, setSavedIncomeCats] = useState<string[]>(() =>
+    loadSavedCategories(STORAGE_KEY_CUSTOM_INCOME_CATS)
+  );
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Kategori Dinamis Sesuai Database Google Sheets & Tipe Transaksi
+  const registerNewCategory = (catName: string, catType: TransactionType) => {
+    const trimmed = catName.trim();
+    if (!trimmed) return;
+    if (catType === 'pengeluaran') {
+      persistNewCategory(STORAGE_KEY_CUSTOM_EXPENSE_CATS, trimmed);
+      setSavedExpenseCats((prev) =>
+        prev.some((c) => c.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]
+      );
+    } else {
+      persistNewCategory(STORAGE_KEY_CUSTOM_INCOME_CATS, trimmed);
+      setSavedIncomeCats((prev) =>
+        prev.some((c) => c.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]
+      );
+    }
+  };
+
+  // Kategori Dinamis Sesuai Database Google Sheets, Custom yang disimpan, & Riwayat Transaksi
   const availableCategories = useMemo<string[]>(() => {
     if (type === 'pengeluaran') {
       const dbCategories = availableBudgets.map((b) => b.category.trim()).filter(Boolean);
-      const combined: string[] = Array.from(new Set([...dbCategories, ...EXPENSE_CATEGORIES_DEFAULT]));
+      const trxCategories = existingTransactions
+        .filter((t) => t.type === 'pengeluaran')
+        .map((t) => t.category.trim())
+        .filter(Boolean);
+      const combined: string[] = Array.from(
+        new Set([
+          ...dbCategories,
+          ...savedExpenseCats,
+          ...trxCategories,
+          ...EXPENSE_CATEGORIES_DEFAULT,
+        ])
+      );
       if (category && !combined.includes(category)) {
         combined.push(category);
       }
       return combined;
     } else {
-      const combined: string[] = INCOME_CATEGORIES_DEFAULT.map((c) => String(c));
+      const trxCategories = existingTransactions
+        .filter((t) => t.type === 'pemasukan')
+        .map((t) => t.category.trim())
+        .filter(Boolean);
+      const combined: string[] = Array.from(
+        new Set([
+          ...savedIncomeCats,
+          ...trxCategories,
+          ...INCOME_CATEGORIES_DEFAULT.map((c) => String(c)),
+        ])
+      );
       if (category && !combined.includes(category)) {
         combined.push(category);
       }
       return combined;
     }
-  }, [type, availableBudgets, category]);
+  }, [type, availableBudgets, savedExpenseCats, savedIncomeCats, existingTransactions, category]);
 
   useEffect(() => {
     if (editingTransaction) {
@@ -101,7 +178,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setCategory(editingTransaction.category);
       setPaymentMethod(editingTransaction.paymentMethod);
       setDate(editingTransaction.date);
-      setTime(editingTransaction.time || '12:00');
+      setTime(editingTransaction.time || getDeviceLocalTime());
       setReceiptUrl(editingTransaction.receiptUrl);
       setIsCustomCategory(false);
       setCustomCategoryInput('');
@@ -113,8 +190,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const defaultExpense = availableBudgets.length > 0 ? availableBudgets[0].category : 'Makanan & Minuman';
       setCategory(defaultExpense);
       setPaymentMethod('QRIS');
-      setDate(defaultDate || new Date().toISOString().split('T')[0]);
-      setTime(new Date().toTimeString().slice(0, 5));
+      // Sesuai tanggal & waktu di device pengguna saat ini
+      setDate(defaultDate || getDeviceLocalDate());
+      setTime(getDeviceLocalTime());
       setReceiptUrl(undefined);
       setIsCustomCategory(false);
       setCustomCategoryInput('');
@@ -239,11 +317,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || amount <= 0 || !merchant.trim()) return;
+    if (isNaN(amount) || amount <= 0 || !merchant.trim()) return;
 
     const finalCategory = isCustomCategory && customCategoryInput.trim()
       ? customCategoryInput.trim()
-      : category;
+      : category.trim();
+
+    if (!finalCategory) return;
+
+    // Daftarkan kategori baru ke daftar kategori agar otomatis tersimpan & muncul seterusnya
+    registerNewCategory(finalCategory, type);
 
     onSave(
       {
@@ -470,11 +553,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </span>
               <input
                 type="number"
-                min="100"
-                step="500"
+                min="1"
+                step="any"
                 value={amount === 0 ? '' : amount}
                 placeholder="0"
-                onChange={(e) => setAmount(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    setAmount(0);
+                  } else {
+                    const num = parseFloat(val);
+                    setAmount(isNaN(num) ? 0 : num);
+                  }
+                }}
                 className="w-full pl-11 pr-4 py-2.5 text-lg font-bold border border-neutral-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono tabular-nums bg-white"
                 required
               />
@@ -482,7 +573,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
             {/* Quick Amount Chips */}
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {[20000, 50000, 100000, 500000].map((val) => (
+              {[10000, 20000, 50000, 100000, 500000].map((val) => (
                 <button
                   key={val}
                   type="button"
@@ -540,18 +631,41 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </div>
 
               {isCustomCategory ? (
-                <input
-                  type="text"
-                  placeholder="Ketik nama kategori..."
-                  value={customCategoryInput}
-                  onChange={(e) => {
-                    setCustomCategoryInput(e.target.value);
-                    setCategory(e.target.value);
-                  }}
-                  className="w-full px-3 py-2 text-xs border border-emerald-400 bg-emerald-50/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  autoFocus
-                  required
-                />
+                <div className="space-y-1">
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="Ketik kategori baru..."
+                      value={customCategoryInput}
+                      onChange={(e) => {
+                        setCustomCategoryInput(e.target.value);
+                        setCategory(e.target.value);
+                      }}
+                      className="w-full px-3 py-2 text-xs border border-emerald-400 bg-emerald-50/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customCategoryInput.trim()) {
+                          const val = customCategoryInput.trim();
+                          registerNewCategory(val, type);
+                          setCategory(val);
+                          setIsCustomCategory(false);
+                          setCustomCategoryInput('');
+                        }
+                      }}
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 whitespace-nowrap cursor-pointer shrink-0 transition-colors"
+                      title="Simpan ke daftar kategori"
+                    >
+                      + Tambah
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-neutral-400">
+                    Otomatis masuk ke daftar kategori pilihan.
+                  </p>
+                </div>
               ) : (
                 <select
                   value={category}

@@ -1,5 +1,7 @@
 /**
  * Utilitas untuk sinkronisasi Google Sheets Database melalui Google Apps Script (Code.gs)
+ * Menggunakan server proxy internal (/api/gsheet-proxy) untuk kelancaran koneksi di perangkat Mobile/PWA
+ * dan menghindari kendala CORS/redirect otentikasi Google.
  */
 
 import { Transaction, CategoryBudget, RecurringTemplate } from '../types/finance';
@@ -22,10 +24,9 @@ export interface GSheetSyncResult<T = unknown> {
 export function getSavedGSheetUrl(): string {
   try {
     const saved = localStorage.getItem(GSHEET_URL_STORAGE_KEY);
-    if (saved !== null) {
-      return saved;
+    if (saved !== null && saved.trim().length > 0) {
+      return saved.trim();
     }
-    // Jika belum diset di localStorage, gunakan default URL dari pengguna
     return DEFAULT_GSHEET_URL;
   } catch {
     return DEFAULT_GSHEET_URL;
@@ -70,7 +71,41 @@ export function setLastSyncTime(): void {
 }
 
 /**
- * Tes koneksi ke URL Web App Google Apps Script
+ * Sinkronisasi URL Google Sheets dengan server backend
+ * agar perangkat PC dan Mobile selalu berbagi link database yang sama
+ */
+export async function fetchServerGSheetUrl(): Promise<string> {
+  try {
+    const res = await fetch('/api/config/gsheet');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.url && typeof data.url === 'string' && data.url.trim().length > 0) {
+        saveGSheetUrl(data.url.trim());
+        return data.url.trim();
+      }
+    }
+  } catch (err) {
+    console.warn('Error fetching server gsheet config:', err);
+  }
+  return getSavedGSheetUrl();
+}
+
+export async function saveGSheetUrlToServer(url: string): Promise<void> {
+  const clean = url.trim();
+  saveGSheetUrl(clean);
+  try {
+    await fetch('/api/config/gsheet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: clean }),
+    });
+  } catch (err) {
+    console.warn('Error saving gsheet url to server:', err);
+  }
+}
+
+/**
+ * Tes koneksi ke URL Web App Google Apps Script via proxy server
  */
 export async function testGSheetConnection(rawUrl: string): Promise<GSheetSyncResult> {
   const url = rawUrl.trim();
@@ -86,49 +121,11 @@ export async function testGSheetConnection(rawUrl: string): Promise<GSheetSyncRe
   }
 
   try {
-    const pingUrl = `${url}?action=ping&_t=${Date.now()}`;
-    const response = await fetch(pingUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+    const proxyUrl = `/api/gsheet-proxy?action=ping&_t=${Date.now()}&targetUrl=${encodeURIComponent(url)}`;
+    const response = await fetch(proxyUrl);
+    const json = await response.json();
 
-    // Check if redirected to Google Accounts login (Access not set to Anyone)
-    if (response.url && response.url.includes('accounts.google.com')) {
-      return {
-        success: false,
-        needsAnyonePermission: true,
-        message:
-          'Akses Apps Script masih diatur ke "Hanya saya" (meminta login akun Google). Ubah ke "Siapa saja (Anyone)" di menu Deploy.',
-      };
-    }
-
-    if (!response.ok) {
-      return {
-        success: false,
-        needsAnyonePermission: response.status === 401 || response.status === 403,
-        message: `Gagal menghubungi server Google Sheets (Status HTTP: ${response.status}). Pastikan hak akses Web App diatur ke "Siapa saja (Anyone)".`,
-      };
-    }
-
-    const text = await response.text();
-    let json: { status?: string; message?: string; spreadsheetName?: string } = {};
-    try {
-      json = JSON.parse(text);
-    } catch {
-      // If HTML was returned, it is likely the Google login page or an HTML error page
-      const isLoginRedirect = text.includes('accounts.google.com') || text.includes('ServiceLogin');
-      return {
-        success: false,
-        needsAnyonePermission: isLoginRedirect,
-        message: isLoginRedirect
-          ? 'Web App dialihkan ke halaman Login Google. Harap atur "Siapa yang memiliki akses (Who has access)" ke "Siapa saja (Anyone)" di Google Apps Script.'
-          : 'Respon dari Apps Script bukan format JSON yang valid.',
-      };
-    }
-
-    if (json.status === 'success') {
+    if (json.status === 'success' || json.success === true) {
       return {
         success: true,
         message: json.message || 'Koneksi ke Google Sheet berhasil terhubung!',
@@ -137,6 +134,7 @@ export async function testGSheetConnection(rawUrl: string): Promise<GSheetSyncRe
     } else {
       return {
         success: false,
+        needsAnyonePermission: Boolean(json.needsAnyonePermission),
         message: json.message || 'Respon error dari Google Apps Script.',
       };
     }
@@ -144,8 +142,7 @@ export async function testGSheetConnection(rawUrl: string): Promise<GSheetSyncRe
     const msg = err instanceof Error ? err.message : String(err);
     return {
       success: false,
-      needsAnyonePermission: true,
-      message: `Tidak dapat menghubungi Google Apps Script (${msg}). Umumnya ini terjadi jika opsi "Who has access" (Siapa yang memiliki akses) belum diatur ke "Anyone" (Siapa saja) saat Deploy.`,
+      message: `Tidak dapat menghubungi Google Apps Script (${msg}).`,
     };
   }
 }
@@ -164,28 +161,27 @@ export async function syncSingleTransactionToGSheet(
   if (!targetUrl) return { success: false, message: 'URL Google Sheet belum diatur.' };
 
   try {
-    const response = await fetch(targetUrl, {
+    const response = await fetch('/api/gsheet-proxy', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(mutation),
+      body: JSON.stringify({
+        targetUrl,
+        ...mutation,
+      }),
     });
 
-    if (!response.ok) {
-      return {
-        success: false,
-        message: `HTTP error: ${response.status}`,
-      };
-    }
-
-    const text = await response.text();
-    const json = JSON.parse(text);
-    if (json.status === 'success') {
+    const json = await response.json();
+    if (json.status === 'success' || json.success === true) {
       setLastSyncTime();
       return { success: true, message: json.message || 'Berhasil disinkronkan ke Google Sheet' };
     }
-    return { success: false, message: json.message || 'Gagal menyimpan mutasi ke sheet' };
+    return {
+      success: false,
+      needsAnyonePermission: Boolean(json.needsAnyonePermission),
+      message: json.message || 'Gagal menyimpan mutasi ke sheet',
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, message: `Gagal sinkron mutasi: ${msg}` };
@@ -197,15 +193,17 @@ export async function syncSingleTransactionToGSheet(
  */
 export async function setupGSheetRemotely(url: string): Promise<GSheetSyncResult> {
   try {
-    const setupUrl = `${url}?action=setup&_t=${Date.now()}`;
-    const response = await fetch(setupUrl, {
-      method: 'GET',
-    });
+    const proxyUrl = `/api/gsheet-proxy?action=setup&_t=${Date.now()}&targetUrl=${encodeURIComponent(url)}`;
+    const response = await fetch(proxyUrl);
     const json = await response.json();
-    if (json.status === 'success') {
+    if (json.status === 'success' || json.success === true) {
       return { success: true, message: json.message };
     }
-    return { success: false, message: json.message || 'Gagal menjalankan setup sheet.' };
+    return {
+      success: false,
+      needsAnyonePermission: Boolean(json.needsAnyonePermission),
+      message: json.message || 'Gagal menjalankan setup sheet.',
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, message: `Gagal inisialisasi sheet: ${msg}` };
@@ -223,30 +221,34 @@ export async function pushAllDataToGSheet(
 ): Promise<GSheetSyncResult> {
   try {
     const payload = {
+      targetUrl: url.trim(),
       action: 'syncLocalData',
       transactions,
       budgets,
       recurring,
     };
 
-    // Menggunakan text/plain untuk menghindari CORS preflight OPTIONS block pada Apps Script
-    const response = await fetch(url, {
+    const response = await fetch('/api/gsheet-proxy', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     });
 
     const json = await response.json();
-    if (json.status === 'success') {
+    if (json.status === 'success' || json.success === true) {
       setLastSyncTime();
       return {
         success: true,
         message: `Berhasil mengunggah ${transactions.length} transaksi, ${budgets.length} anggaran, dan ${recurring.length} jadwal rutin ke Google Sheet!`,
       };
     }
-    return { success: false, message: json.message || 'Gagal mengunggah data ke sheet.' };
+    return {
+      success: false,
+      needsAnyonePermission: Boolean(json.needsAnyonePermission),
+      message: json.message || 'Gagal mengunggah data ke sheet.',
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, message: `Gagal sinkronisasi ke sheet: ${msg}` };
@@ -264,13 +266,10 @@ export async function pullDataFromGSheet(url: string): Promise<
   }>
 > {
   try {
-    const pullUrl = `${url}?action=getInitialData&_t=${Date.now()}`;
-    const response = await fetch(pullUrl, {
-      method: 'GET',
-    });
-
+    const proxyUrl = `/api/gsheet-proxy?action=getInitialData&_t=${Date.now()}&targetUrl=${encodeURIComponent(url)}`;
+    const response = await fetch(proxyUrl);
     const json = await response.json();
-    if (json.status === 'success') {
+    if (json.status === 'success' || json.success === true) {
       setLastSyncTime();
       return {
         success: true,
@@ -282,7 +281,11 @@ export async function pullDataFromGSheet(url: string): Promise<
         },
       };
     }
-    return { success: false, message: json.message || 'Gagal mengambil data dari Google Sheet.' };
+    return {
+      success: false,
+      needsAnyonePermission: Boolean(json.needsAnyonePermission),
+      message: json.message || 'Gagal mengambil data dari Google Sheet.',
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, message: `Gagal memuat data dari sheet: ${msg}` };

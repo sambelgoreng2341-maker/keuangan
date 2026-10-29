@@ -81,23 +81,24 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Action Buttons: Google Sheet (desktop/tablet only) + Camera Struk (desktop/tablet only) + Catat (always visible) */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Google Sheet Database Button - Hidden on mobile to keep header clean and spacious */}
+            {/* Google Sheet Database Button - Accessible on both mobile and desktop */}
             <button
               type="button"
               onClick={onOpenGoogleSheetsModal}
-              className={`hidden sm:inline-flex min-h-[38px] sm:min-h-[40px] items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold rounded-xl border transition-all whitespace-nowrap cursor-pointer ${
+              className={`inline-flex min-h-[36px] sm:min-h-[40px] items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold rounded-xl border transition-all whitespace-nowrap cursor-pointer ${
                 hasGSheetConnected
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                  : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100'
+                  : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
               }`}
-              title="Setup Google Sheets (Code.gs) Database"
+              title="Database Google Sheets"
+              aria-label="Database Google Sheets"
             >
-              <FileSpreadsheet className={`w-4 h-4 ${hasGSheetConnected ? 'text-emerald-600' : 'text-neutral-500'}`} />
+              <FileSpreadsheet className={`w-4 h-4 ${hasGSheetConnected ? 'text-emerald-600' : 'text-amber-600'}`} />
               <span className="hidden sm:inline">Google Sheet</span>
               {hasGSheetConnected ? (
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Terhubung"></span>
               ) : (
-                <span className="w-2 h-2 rounded-full bg-neutral-300"></span>
+                <span className="w-2 h-2 rounded-full bg-amber-500" title="Perlu Pengaturan / Belum Terhubung"></span>
               )}
             </button>
 

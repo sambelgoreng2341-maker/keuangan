@@ -21,6 +21,8 @@ import { CODE_GS_SOURCE } from '../data/codeGsContent';
 import {
   getSavedGSheetUrl,
   saveGSheetUrl,
+  saveGSheetUrlToServer,
+  fetchServerGSheetUrl,
   removeGSheetUrl,
   testGSheetConnection,
   pushAllDataToGSheet,
@@ -79,6 +81,13 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
         setStatusMessage('');
       }
       setNeedsAnyonePermission(false);
+
+      // Sinkronkan juga URL dari server jika ada pembaruan dari perangkat lain
+      fetchServerGSheetUrl().then((serverUrl) => {
+        if (serverUrl && serverUrl !== saved) {
+          setWebAppUrl(serverUrl);
+        }
+      });
     }
   }, [isOpen]);
 
@@ -114,12 +123,12 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
     }
 
     setConnectionStatus('testing');
-    setStatusMessage('Sedang menguji koneksi ke Google Sheet...');
+    setStatusMessage('Sedang menguji koneksi ke Google Sheet via proxy server...');
     setNeedsAnyonePermission(false);
 
     const res = await testGSheetConnection(webAppUrl);
     if (res.success) {
-      saveGSheetUrl(webAppUrl);
+      await saveGSheetUrlToServer(webAppUrl);
       setConnectionStatus('connected');
       setStatusMessage(res.message);
       if (res.spreadsheetName) setSpreadsheetName(res.spreadsheetName);
